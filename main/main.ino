@@ -42,6 +42,14 @@ enum MODE {
   off
 };
 
+void print_byte(uint8_t byte) {
+    for (int i = 7; i >= 0; i--) {
+      Serial.print((byte >> i) & 0x01);
+    }
+
+    Serial.println("");
+}
+
 
 namespace SPI {
   namespace Clock { // Clock control for spi
@@ -60,11 +68,9 @@ namespace SPI {
       return current_clock;
     } 
 
-    MODE init() {
+    void init() {
       pinMode(clock_pin, OUTPUT);
       digitalWrite(clock_pin, LOW);
-
-      return on;
     }
   }
 
@@ -76,21 +82,43 @@ namespace SPI {
 
   void enable_cs() {
     digitalWrite(chip_select, LOW); // active low
+    
   }
 
   void disable_cs() {
     digitalWrite(chip_select, HIGH); // active low
+    
   }
 
+  void slave_out_high_imp() {
+    pinMode(slave_out, INPUT);
+    
+  }
 
-  void spi_read() {
+  uint8_t read_slave_out() {
+    Clock::tick();
+    
 
+    uint8_t bit = digitalRead(slave_out);
+    
+    Clock::tick();
+    return bit;
+  }
 
+  uint8_t read_byte() {
+    uint8_t byte = 0;
+    for (int i = 7; i >= 0; i--) {
+        byte |= (read_slave_out() << i);
+    }
+    
+    return byte;
   }
 
   void write_bit(uint8_t bit) {
-    Clock::tick();
     digitalWrite(slave_in, bit);
+    
+    Clock::tick();
+    delayMicroseconds(1);
     Clock::tick();
   }
 
@@ -101,17 +129,34 @@ namespace SPI {
   }
 
   void spi_write(uint8_t addr, uint8_t data) {
-    uint8_t write_instruction = 0x2;
+    uint8_t write_instruction = 0b00000010;
+    slave_out_high_imp();
     enable_cs();
     write_byte(write_instruction);
     write_byte(addr);
     write_byte(data);
+    disable_cs();
   }
 
-  MODE init() {
+
+  uint8_t spi_read(uint8_t addr) {
+    uint8_t read_ins = 0b00000011;
+    slave_out_high_imp();
+    enable_cs();
+    write_byte(read_ins);
+    write_byte(addr);
+
+    uint8_t data = read_byte();
+    disable_cs();
+    
+    print_byte(data);
+    return data;
+  }
+
+  void init() {
     pinMode(chip_select, OUTPUT);
-    pinMode(slave_out, OUTPUT);
-    pinMode(slave_in, INPUT);
+    pinMode(slave_out, INPUT);
+    pinMode(slave_in, OUTPUT);
     pinMode(interrupt, INPUT);
 
     disable_cs();
@@ -121,7 +166,7 @@ namespace SPI {
 }
 
 namespace CANController {
-  int receive_buff[16];
+  
   MODE receive_filter_status = off;
 
   MODE toggle_filters() {
@@ -139,23 +184,62 @@ namespace CANController {
 
 
 void setup() {
+  Serial.begin(9600);
   SPI::init();
-  // Disable controller's chip select
-  
+}
 
-  // Turn off all masking filters - all messages will be received be receive buff 0
+void test_write_read(uint8_t addr, uint8_t data) {
+  SPI::spi_write(addr, data);
+  delay(100);
+  SPI::spi_read(addr);
+}
 
+
+uint8_t taddr = 0;
+uint8_t tdata = 0;
+
+uint8_t hexCharToByte(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    } else if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    } else if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    return 0;
+}
+
+uint8_t parseHexByte(const char* hexStr) {
+    return (hexCharToByte(hexStr[0]) << 4) + hexCharToByte(hexStr[1]);
+}
+
+void test_spi() {
+    if (Serial.available() > 0) {
+        static char inputBuffer[5];
+        static uint8_t inputIndex = 0;
+        
+        char incomingChar = Serial.read();
+        
+        if (incomingChar == '\n' || incomingChar == '\r') {
+            if (inputIndex == 5) {
+                taddr = parseHexByte(inputBuffer);
+                tdata = parseHexByte(inputBuffer + 3);
+                test_write_read(taddr, tdata);
+            }
+            inputIndex = 0;
+        } else if (inputIndex < 5) {
+            inputBuffer[inputIndex++] = incomingChar;
+        }
+    }
 }
 
 void loop() {
-  
-
+  test_spi();
 }
 
 // for reading 
 // 1. poll the interrupt pin
 // 2. when interrupt is received, need to see which buffer the message is in (BFPCTRL)
 // 3. need to read the length of the message 
-// 4. 
 
 

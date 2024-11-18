@@ -1,3 +1,5 @@
+// This is an implementation for the SPI interface of some board that uses the MCP2515 (a CAN controller)
+
 // RECEIVE BUFF CONTROL REGISTERS 
 #define RXB0CTRL 0x60  // Receive buff 0 control register
 #define RXM0 0x6 // RXM0 and RXM1 are control bits for what filters should be applid to receive message - when both are 1, all messages are received
